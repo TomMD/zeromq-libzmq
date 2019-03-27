@@ -32,41 +32,43 @@
 
 SETUP_TEARDOWN_TESTCONTEXT
 
-typedef void (*extra_func_t) (void *socket_);
-
-void set_sockopt_bind_to_device (void *socket)
+void test_no_zap_handler ()
 {
-    const char device[] = "lo";
+    //  We first test client/server with a ZAP domain but with no handler
+    //  If there is no handler, libzmq should ignore the ZAP option unless
+    //  ZMQ_ZAP_ENFORCE_DOMAIN is set
+    void *server = test_context_socket (ZMQ_DEALER);
+    void *client = test_context_socket (ZMQ_DEALER);
     TEST_ASSERT_SUCCESS_ERRNO (
-      zmq_setsockopt (socket, ZMQ_BINDTODEVICE, &device, sizeof (device) - 1));
-}
-
-//  TODO this is duplicated from test_pair_tcp
-void test_pair_tcp (extra_func_t extra_func_ = NULL)
-{
-    void *sb = test_context_socket (ZMQ_PAIR);
-
-    if (extra_func_)
-        extra_func_ (sb);
-
+      zmq_setsockopt (server, ZMQ_ZAP_DOMAIN, "TEST", 5));
     char my_endpoint[MAX_SOCKET_STRING];
-    bind_loopback_ipv4 (sb, my_endpoint, sizeof my_endpoint);
-
-    void *sc = test_context_socket (ZMQ_PAIR);
-    if (extra_func_)
-        extra_func_ (sc);
-
-    TEST_ASSERT_SUCCESS_ERRNO (zmq_connect (sc, my_endpoint));
-
-    bounce (sb, sc);
-
-    test_context_socket_close (sc);
-    test_context_socket_close (sb);
+    bind_loopback_ipv4 (server, my_endpoint, sizeof my_endpoint);
+    TEST_ASSERT_SUCCESS_ERRNO (zmq_connect (client, my_endpoint));
+    bounce (server, client);
+    test_context_socket_close_zero_linger (client);
+    test_context_socket_close_zero_linger (server);
 }
 
-void test_pair_tcp_bind_to_device ()
+void test_no_zap_handler_enforce_domain ()
 {
-    test_pair_tcp (set_sockopt_bind_to_device);
+#ifdef ZMQ_ZAP_ENFORCE_DOMAIN
+    //  Now set ZMQ_ZAP_ENFORCE_DOMAIN which strictly enforces the ZAP
+    //  RFC but is backward-incompatible, now it should fail
+    void *server = test_context_socket (ZMQ_DEALER);
+    void *client = test_context_socket (ZMQ_DEALER);
+    int required = 1;
+    TEST_ASSERT_SUCCESS_ERRNO (
+      zmq_setsockopt (server, ZMQ_ZAP_ENFORCE_DOMAIN, &required, sizeof (int)));
+    TEST_ASSERT_SUCCESS_ERRNO (
+      zmq_setsockopt (server, ZMQ_ZAP_DOMAIN, "TEST", 5));
+    char my_endpoint[MAX_SOCKET_STRING];
+    bind_loopback_ipv4 (server, my_endpoint, sizeof my_endpoint);
+
+    TEST_ASSERT_SUCCESS_ERRNO (zmq_connect (client, my_endpoint));
+    expect_bounce_fail (server, client);
+    test_context_socket_close_zero_linger (client);
+    test_context_socket_close_zero_linger (server);
+#endif
 }
 
 int main ()
@@ -74,7 +76,7 @@ int main ()
     setup_test_environment ();
 
     UNITY_BEGIN ();
-    RUN_TEST (test_pair_tcp_bind_to_device);
-
+    RUN_TEST (test_no_zap_handler);
+    RUN_TEST (test_no_zap_handler_enforce_domain);
     return UNITY_END ();
 }
