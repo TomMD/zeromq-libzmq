@@ -40,19 +40,17 @@ void tearDown ()
     teardown_test_context ();
 }
 
-
 typedef void (*extra_func_t) (void *socket_);
 
-#ifdef ZMQ_BUILD_DRAFT
-void set_sockopt_fastpath (void *socket)
+void set_sockopt_bind_to_device (void *socket)
 {
-    int value = 1;
+    const char device[] = "lo";
     int rc =
-      zmq_setsockopt (socket, ZMQ_LOOPBACK_FASTPATH, &value, sizeof value);
+      zmq_setsockopt (socket, ZMQ_BINDTODEVICE, &device, sizeof (device) - 1);
     assert (rc == 0);
 }
-#endif
 
+//  TODO this is duplicated from test_pair_tcp
 void test_pair_tcp (extra_func_t extra_func_ = NULL)
 {
     void *sb = test_context_socket (ZMQ_PAIR);
@@ -75,58 +73,17 @@ void test_pair_tcp (extra_func_t extra_func_ = NULL)
     test_context_socket_close (sb);
 }
 
-void test_pair_tcp_regular ()
+void test_pair_tcp_bind_to_device ()
 {
-    test_pair_tcp ();
+    test_pair_tcp (set_sockopt_bind_to_device);
 }
-
-void test_pair_tcp_connect_by_name ()
-{
-    // all other tcp test cases bind to a loopback wildcard address, then
-    // retrieve the bound endpoint, which is numerical, and use that to
-    // connect. this test cases specifically uses "localhost" to connect
-    // to ensure that names are correctly resolved
-    void *sb = test_context_socket (ZMQ_PAIR);
-
-    char bound_endpoint[MAX_SOCKET_STRING];
-    bind_loopback_ipv4 (sb, bound_endpoint, sizeof bound_endpoint);
-
-    // extract the bound port number
-    const char *pos = strrchr (bound_endpoint, ':');
-    TEST_ASSERT_NOT_NULL (pos);
-    const char connect_endpoint_prefix[] = "tcp://localhost";
-    char connect_endpoint[MAX_SOCKET_STRING];
-    strcpy (connect_endpoint, connect_endpoint_prefix);
-    strcat (connect_endpoint, pos);
-
-    void *sc = test_context_socket (ZMQ_PAIR);
-
-    TEST_ASSERT_SUCCESS_ERRNO (zmq_connect (sc, connect_endpoint));
-
-    bounce (sb, sc);
-
-    test_context_socket_close (sc);
-    test_context_socket_close (sb);
-}
-
-
-#ifdef ZMQ_BUILD_DRAFT
-void test_pair_tcp_fastpath ()
-{
-    test_pair_tcp (set_sockopt_fastpath);
-}
-#endif
 
 int main ()
 {
     setup_test_environment ();
 
     UNITY_BEGIN ();
-    RUN_TEST (test_pair_tcp_regular);
-    RUN_TEST (test_pair_tcp_connect_by_name);
-#ifdef ZMQ_BUILD_DRAFT
-    RUN_TEST (test_pair_tcp_fastpath);
-#endif
+    RUN_TEST (test_pair_tcp_bind_to_device);
 
     return UNITY_END ();
 }
